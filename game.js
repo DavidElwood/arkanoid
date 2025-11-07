@@ -8,6 +8,7 @@ let game = {
         });
     }
 };
+
 window.addEventListener("load", () => {
     game.start();
 });
