@@ -1,6 +1,4 @@
 const KEYS = {
-    LEFT: 37,
-    RIGHT: 39,
     SPACE: 32
 };
 
@@ -10,19 +8,24 @@ let game = {
     platform: null,
     ball: null,
     blocks: [],
+    effects: [], // Array to hold animation effects
     score: 0,
     rows: 4,
     cols: 8,
     width: 640,
     height: 360,
-    sprites: {
-        background: null,
-        ball: null,
-        platform: null,
-        block: null
-    },
     sounds: {
         bump: null,
+    },
+    colors: {
+        background: "#f0f0f0",
+        ball: "#3498db",
+        platform: "#2c3e50",
+        text: "#333",
+        blocks: ["#e74c3c", "#f1c40f", "#2ecc71", "#9b59b6"]
+    },
+    mouse: {
+        x: 0
     },
     init() {
         this.ctx = document.getElementById("mycanvas").getContext("2d");
@@ -31,26 +34,28 @@ let game = {
     },
     setTextFont() {
         this.ctx.font = "20px Arial";
-        this.ctx.fillStyle = "#FFFFFF";
+        this.ctx.fillStyle = this.colors.text;
     },
     setEvents() {
         window.addEventListener("keydown", e => {
             if (e.keyCode === KEYS.SPACE) {
                 this.platform.fire();
-            } else if (e.keyCode === KEYS.LEFT || e.keyCode === KEYS.RIGHT) {
-                this.platform.start(e.keyCode);
             }
         });
-
-        window.addEventListener("keyup", e => {
-            this.platform.stop();
+        window.addEventListener("mousemove", e => {
+            let canvasBounds = this.ctx.canvas.getBoundingClientRect();
+            this.mouse.x = e.clientX - canvasBounds.left;
         });
     },
     preload(callback) {
         let loaded = 0;
-        let required = Object.keys(this.sprites).length;
-        required += Object.keys(this.sounds).length;
+        let required = Object.keys(this.sounds).length;
 
+        if (required === 0) {
+            callback();
+            return;
+        }
+        
         let onResourceLoad = () => {
             ++loaded;
             if (loaded >= required) {
@@ -58,15 +63,7 @@ let game = {
             }
         };
 
-        this.preloadSprites(onResourceLoad);
         this.preloadAudio(onResourceLoad);
-    },
-    preloadSprites(onResourceLoad) {
-        for (let key in this.sprites) {
-            this.sprites[key] = new Image();
-            this.sprites[key].src = "img/" + key + ".png";
-            this.sprites[key].addEventListener("load", onResourceLoad);
-        }
     },
     preloadAudio(onResourceLoad) {
         for (let key in this.sounds) {
@@ -82,7 +79,8 @@ let game = {
                     width: 60,
                     height: 20,
                     x: 64 * col + 65,
-                    y: 24 * row + 35
+                    y: 24 * row + 35,
+                    color: this.colors.blocks[row % this.colors.blocks.length]
                 });
             }
         }
@@ -94,11 +92,23 @@ let game = {
         this.platform.collideWorldBounds();
         this.platform.move();
         this.ball.move();
+        this.updateEffects();
+    },
+    updateEffects() {
+        for (let i = this.effects.length - 1; i >= 0; i--) {
+            let effect = this.effects[i];
+            effect.alpha -= 0.05; // Fade out speed
+            effect.scale += 0.05;  // Scale up speed
+
+            if (effect.alpha <= 0) {
+                this.effects.splice(i, 1);
+            }
+        }
     },
     addScore() {
         ++this.score;
         if (this.score >= this.blocks.length) {
-            this.end("You Winner");
+            this.end("You Win!");
         }
     },
     collideBlocks() {
@@ -126,19 +136,43 @@ let game = {
         }
     },
     render() {
-        this.ctx.clearRect(0, 0, this.width, this.height);
-        this.ctx.drawImage(this.sprites.background, 0, 0);
-        this.ctx.drawImage(this.sprites.ball, 0, 0, this.ball.width, this.ball.height, this.ball.x, this.ball.y, this.ball.width, this.ball.height);
-        this.ctx.drawImage(this.sprites.platform, this.platform.x, this.platform.y);
+        this.ctx.fillStyle = this.colors.background;
+        this.ctx.fillRect(0, 0, this.width, this.height);
+
+        this.ctx.fillStyle = this.colors.ball;
+        this.ctx.beginPath();
+        this.ctx.arc(this.ball.x + this.ball.width / 2, this.ball.y + this.ball.height / 2, this.ball.width / 2, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        this.ctx.fillStyle = this.colors.platform;
+        this.ctx.fillRect(this.platform.x, this.platform.y, this.platform.width, this.platform.height);
+
         this.renderBlocks();
+        this.renderEffects();
         this.ctx.fillText("Score: " + this.score, 15, 20);
     },
     renderBlocks() {
         for (let block of this.blocks) {
             if (block.active) {
-                this.ctx.drawImage(this.sprites.block, block.x, block.y);
+                this.ctx.fillStyle = block.color;
+                this.ctx.fillRect(block.x, block.y, block.width, block.height);
             }
         }
+    },
+    renderEffects() {
+        this.ctx.save();
+        for (let effect of this.effects) {
+            this.ctx.globalAlpha = effect.alpha;
+            this.ctx.fillStyle = effect.color;
+
+            let newWidth = effect.width * effect.scale;
+            let newHeight = effect.height * effect.scale;
+            let x = effect.x - (newWidth - effect.width) / 2;
+            let y = effect.y - (newHeight - effect.height) / 2;
+
+            this.ctx.fillRect(x, y, newWidth, newHeight);
+        }
+        this.ctx.restore();
     },
     start: function () {
         this.init();
@@ -160,11 +194,11 @@ let game = {
 game.ball = {
     dx: 0,
     dy: 0,
-    velocity: 3,
+    velocity: 4,
     x: 320,
     y: 280,
-    width: 20,
-    height: 20,
+    width: 12,
+    height: 12,
     start() {
         this.dy = -this.velocity;
         this.dx = game.random(-this.velocity, this.velocity);
@@ -223,22 +257,28 @@ game.ball = {
     bumpBlock(block) {
         this.dy *= -1;
         block.active = false;
+        // Create an effect for the block destruction
+        game.effects.push({
+            x: block.x,
+            y: block.y,
+            width: block.width,
+            height: block.height,
+            color: block.color,
+            alpha: 1,
+            scale: 1
+        });
     },
     bumpPlatform(platform) {
-        if (platform.dx) {
-            this.x += platform.dx;
-        }
-
         if (this.dy > 0) {
             this.dy = -this.velocity;
             let touchX = this.x + this.width / 2;
-            this.dx = this.velocity * platform.getTouchOffset(touchX);
+            let newDx = (touchX - (platform.x + platform.width / 2)) / (platform.width / 2);
+            this.dx = newDx * this.velocity;
         }
     }
 };
 
 game.platform = {
-    velocity: 6,
     dx: 0,
     x: 280,
     y: 300,
@@ -251,42 +291,30 @@ game.platform = {
             this.ball = null;
         }
     },
-    start(direction) {
-        if (direction === KEYS.LEFT) {
-            this.dx = -this.velocity;
-        } else if (direction === KEYS.RIGHT) {
-            this.dx = this.velocity;
-        }
-    },
-    stop() {
-        this.dx = 0;
-    },
     move() {
-        if (this.dx) {
-            this.x += this.dx;
-            if (this.ball) {
-                this.ball.x += this.dx;
-            }
+        let targetX = game.mouse.x - this.width / 2;
+        this.x += (targetX - this.x) * 0.1;
+
+        if (this.ball) {
+           this.ball.x = this.x + this.width / 2 - this.ball.width / 2;
         }
-    },
-    getTouchOffset(x) {
-        let diff = (this.x + this.width) - x;
-        let offset = this.width - diff;
-        let result = 2 * offset / this.width;
-        return result - 1;
     },
     collideWorldBounds() {
-        let x = this.x + this.dx;
+        let x = this.x;
         let platformLeft = x;
         let platformRight = platformLeft + this.width;
         let worldLeft = 0;
         let worldRight = game.width;
 
-        if (platformLeft < worldLeft || platformRight > worldRight) {
-            this.dx = 0;
+        if (platformLeft < worldLeft) {
+            this.x = worldLeft;
+        } else if (platformRight > worldRight) {
+            this.x = worldRight - this.width;
         }
     }
 };
+
+game.platform.ball = game.ball;
 
 window.addEventListener("load", () => {
     game.start();
